@@ -130,30 +130,43 @@ def extract_toc(url):
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, timeout=15, headers=headers)
         
-        # Bỏ qua nếu link bị 404, 403, 500... (chỉ lấy link hoạt động bình thường mã 200)
         if resp.status_code != 200:
-            return ""
+            return None
             
         soup = BeautifulSoup(resp.text, "html.parser")
         h1 = soup.find("h1")
         h1_text = h1.get_text(strip=True) if h1 else ""
         headings = soup.find_all(["h2", "h3"])
         toc_text = " ".join([h.get_text(strip=True) for h in headings])
+        
         content_area = (
             soup.find("div", class_="entry-content") or
             soup.find("div", class_="post-content") or
-            soup.find("article") or soup.find("main")
+            soup.find("article") or soup.find("main") or soup.body
         )
+        
         intro_text = ""
+        word_count = 0
         if content_area:
+            full_text = content_area.get_text(separator=" ", strip=True)
+            word_count = len(full_text.split())
+            
             for tag in content_area.find_all(["h1", "h2", "h3", "h4"]):
                 tag.decompose()
             words = content_area.get_text(separator=" ", strip=True).split()
             intro_text = " ".join(words[:150])
+            
         combined = f"{h1_text}. {toc_text}. {intro_text}"
-        return re.sub(r"[^\w\s]", " ", combined).lower().strip()
+        
+        return {
+            "h1": re.sub(r"[^\w\s]", " ", h1_text).lower().strip(),
+            "toc": re.sub(r"[^\w\s]", " ", toc_text).lower().strip(),
+            "intro": re.sub(r"[^\w\s]", " ", intro_text).lower().strip(),
+            "full": re.sub(r"[^\w\s]", " ", combined).lower().strip(),
+            "word_count": word_count
+        }
     except:
-        return ""
+        return None
 
 # ============================================================
 # DANH SÁCH TỈNH/THÀNH PHỐ VIỆT NAM
@@ -202,10 +215,12 @@ def load_sbert_model():
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
 def run_similarity_analysis(toc_data, valid_urls, threshold):
-    # Lớp 1: TF-IDF lọc nhanh
-    vectorizer    = TfidfVectorizer()
-    tfidf_matrix  = vectorizer.fit_transform(toc_data)
+    # Lớp 1: TF-IDF lọc nhanh dựa trên nội dung tổng hợp
+    full_texts = [item["full"] for item in toc_data]
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(full_texts)
     tfidf_sim_mat = cosine_similarity(tfidf_matrix)
+    
     candidates = []
     for i in range(len(valid_urls)):
         for j in range(i + 1, len(valid_urls)):
@@ -214,39 +229,69 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
     if not candidates:
         return []
 
-    # Lớp 2: SBERT phân tích ngữ nghĩa
+    # Lớp 2: SBERT phân tích ngữ nghĩa 3 chiều
     model = load_sbert_model()
     needed_idx = sorted(set(i for i, j, _ in candidates) | set(j for i, j, _ in candidates))
-    embeddings = model.encode(
-        [toc_data[i] for i in needed_idx],
-        show_progress_bar=False,
-        batch_size=32
-    )
-    embed_map = {idx: emb for idx, emb in zip(needed_idx, embeddings)}
+    
+    # Mã hóa các thành phần
+    embed_full = {idx: emb for idx, emb in zip(needed_idx, model.encode([toc_data[i]["full"] for i in needed_idx], show_progress_bar=False, batch_size=32))}
+    embed_h1   = {idx: emb for idx, emb in zip(needed_idx, model.encode([toc_data[i]["h1"] for i in needed_idx], show_progress_bar=False, batch_size=32))}
+    embed_toc  = {idx: emb for idx, emb in zip(needed_idx, model.encode([toc_data[i]["toc"] for i in needed_idx], show_progress_bar=False, batch_size=32))}
 
     results = []
     for i, j, tfidf_score in candidates:
-        sbert_score = float(cosine_similarity(
-            embed_map[i].reshape(1, -1),
-            embed_map[j].reshape(1, -1)
-        )[0][0])
-        combined = round(tfidf_score * 0.3 + sbert_score * 0.7, 4)
-        if combined >= threshold:
+        sim_full = float(cosine_similarity(embed_full[i].reshape(1, -1), embed_full[j].reshape(1, -1))[0][0])
+        sim_h1   = float(cosine_similarity(embed_h1[i].reshape(1, -1), embed_h1[j].reshape(1, -1))[0][0])
+        sim_toc  = float(cosine_similarity(embed_toc[i].reshape(1, -1), embed_toc[j].reshape(1, -1))[0][0])
+        
+        combined = round(tfidf_score * 0.3 + sim_full * 0.7, 4)
+        
+        # Chỉ xử lý nếu có bất kỳ điểm nào vượt ngưỡng
+        if combined >= threshold or sim_h1 >= 0.85 or sim_toc >= 0.85:
+            # 1. Chẩn đoán SEO
+            word_count_i = toc_data[i]["word_count"]
+            word_count_j = toc_data[j]["word_count"]
+            is_local = is_local_duplicate(valid_urls[i], valid_urls[j])
+            
+            diagnosis = ""
+            action = ""
+            
+            if word_count_i < 700 or word_count_j < 700:
+                diagnosis = "🗑️ Thin Content"
+                action = "Bổ sung nội dung (>700 từ)"
+            elif combined >= 0.95:
+                diagnosis = "📑 Exact Copy"
+                action = "Xóa bài cũ + Redirect 301"
+            elif combined >= threshold and is_local:
+                diagnosis = "🏙️ Local Template"
+                action = "Giữ nguyên (nếu là chiến lược) hoặc Redirect"
+            elif sim_h1 >= 0.85 and combined < threshold:
+                diagnosis = "⚔️ Cannibalization"
+                action = "Đổi Tiêu đề H1 / Gộp bài"
+            elif sim_toc >= 0.85 and combined < threshold:
+                diagnosis = "🏗️ Structure Duplicate"
+                action = "Viết lại Dàn ý (H2/H3)"
+            elif combined >= threshold:
+                diagnosis = "📄 Content Duplicate"
+                action = "Gộp bài + Redirect 301"
+            else:
+                continue # Bỏ qua nếu không rơi vào chẩn đoán nào
+
             level = (
-                "🔴 Rất cao" if combined >= 0.85 else
-                "🟠 Cao"     if combined >= 0.70 else
+                "🔴 Rất cao" if combined >= 0.85 or sim_h1 >= 0.9 else
+                "🟠 Cao"     if combined >= 0.70 or sim_h1 >= 0.8 else
                 "🟡 Trung bình"
             )
-            loai = "🏙️ Local Duplicate" if is_local_duplicate(valid_urls[i], valid_urls[j]) else "📄 Content Duplicate"
+            
             results.append({
                 "Bài viết A":        valid_urls[i],
                 "Bài viết B":        valid_urls[j],
-                "Loại":              loai,
-                "TF-IDF (%)":        round(tfidf_score * 100, 1),
-                "SBERT (%)":         round(sbert_score * 100, 1),
-                "Điểm tổng hợp (%)": round(combined * 100, 1),
+                "Chẩn đoán SEO":     diagnosis,
+                "Điểm Tổng (%)":     round(combined * 100, 1),
+                "Điểm H1 (%)":       round(sim_h1 * 100, 1),
+                "Điểm Dàn ý (%)":    round(sim_toc * 100, 1),
                 "Cảnh báo":          level,
-                "Đề xuất":           "Xóa + Redirect 301" if "Local" in loai else "Gộp bài + Redirect 301"
+                "Đề xuất":           action
             })
     return results
 
@@ -255,35 +300,33 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
 # ============================================================
 def show_results(results, valid_urls):
     st.divider()
-    st.subheader("📊 Kết quả phân tích")
+    st.subheader("📊 Kết quả phân tích Đa chiều")
 
     total      = len(results)
     high_risk  = sum(1 for r in results if "🔴" in r.get("Cảnh báo", ""))
-    local_dup  = sum(1 for r in results if "🏙️" in r.get("Loại", ""))
+    local_dup  = sum(1 for r in results if "🏙️" in r.get("Chẩn đoán SEO", ""))
+    cannibal   = sum(1 for r in results if "⚔️" in r.get("Chẩn đoán SEO", ""))
     dup_rate   = round(total / max(len(valid_urls), 1) * 100, 1)
 
     # Metric cards — native Streamlit
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📚 Bài đã phân tích", len(valid_urls))
-    c2.metric("⚠️ Cặp trùng lặp",   total)
-    c3.metric("🔴 Nguy cơ cao",      high_risk)
-    c4.metric("📊 Tỷ lệ trùng lặp", f"{dup_rate}%")
-
-    if total > 0:
-        st.caption(f"🏙️ Local Duplicate: **{local_dup}** cặp &nbsp;|&nbsp; 📄 Content Duplicate: **{total - local_dup}** cặp")
+    c1.metric("📚 Đã phân tích", len(valid_urls))
+    c2.metric("⚠️ Tổng cảnh báo",   total)
+    c3.metric("⚔️ Ăn thịt từ khóa", cannibal)
+    c4.metric("🔴 Nguy cơ cao",      high_risk)
 
     st.write("")
     if results:
-        df = pd.DataFrame(results).sort_values("Điểm tổng hợp (%)", ascending=False)
+        df = pd.DataFrame(results).sort_values("Điểm Tổng (%)", ascending=False)
         st.dataframe(
             df,
             use_container_width=True,
             height=min(500, 60 + len(df) * 38),
             column_config={
-                "Bài viết A": st.column_config.LinkColumn("Bài viết A", width="large"),
-                "Bài viết B": st.column_config.LinkColumn("Bài viết B", width="large"),
-                "Điểm tổng hợp (%)": st.column_config.ProgressColumn(
-                    "Điểm tổng hợp", min_value=0, max_value=100, format="%.1f%%"
+                "Bài viết A": st.column_config.LinkColumn("Bài viết A", width="medium"),
+                "Bài viết B": st.column_config.LinkColumn("Bài viết B", width="medium"),
+                "Điểm Tổng (%)": st.column_config.ProgressColumn(
+                    "Điểm Tổng", min_value=0, max_value=100, format="%.1f%%"
                 ),
             },
             hide_index=True
@@ -291,14 +334,14 @@ def show_results(results, valid_urls):
         buf = io.BytesIO()
         df.to_excel(buf, index=False)
         st.download_button(
-            "⬇️ Tải báo cáo Excel",
+            "⬇️ Tải báo cáo Excel chi tiết",
             data=buf.getvalue(),
-            file_name="duplicate_report.xlsx",
+            file_name="seo_duplicate_diagnosis.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
     else:
-        st.success("🎉 Không tìm thấy bài viết nào bị trùng lặp!")
+        st.success("🎉 Không tìm thấy vấn đề trùng lặp SEO nào!")
 
 # ============================================================
 # SIDEBAR
@@ -499,14 +542,14 @@ if st.session_state.running:
 if st.session_state.results is not None:
     results_to_show = st.session_state.results
 
-    local_count   = sum(1 for r in results_to_show if "🏙️" in r.get("Loại", ""))
+    local_count   = sum(1 for r in results_to_show if "🏙️" in r.get("Chẩn đoán SEO", ""))
     content_count = len(results_to_show) - local_count
 
     if hide_local:
-        results_to_show = [r for r in results_to_show if "🏙️" not in r.get("Loại", "")]
+        results_to_show = [r for r in results_to_show if "🏙️" not in r.get("Chẩn đoán SEO", "")]
         if local_count > 0:
-            st.info(f"🏙️ Đã ẩn **{local_count}** cặp Local Duplicate. Hiển thị **{content_count}** cặp Content Duplicate.")
+            st.info(f"🏙️ Đã ẩn **{local_count}** cặp Local Template.")
     elif local_count > 0:
-        st.warning(f"🏙️ Phát hiện **{local_count}** cặp Local Duplicate (trang địa phương theo mẫu). Bật 'Ẩn Local Duplicate' trong sidebar nếu muốn lọc.")
+        st.warning(f"🏙️ Phát hiện **{local_count}** cặp Local Template (trang địa phương theo mẫu). Bật 'Ẩn Local Duplicate' trong sidebar nếu muốn lọc.")
 
     show_results(results_to_show, st.session_state.valid_urls)
