@@ -362,12 +362,24 @@ if resume_btn and st.session_state.paused:
     st.rerun()
 
 if start_btn:
-    if source == "🗺️ Sitemap XML" and not sitemap_url.strip():
-        st.error("❌ Vui lòng nhập URL Sitemap!")
-        st.stop()
-    if source == "📊 Google Sheet" and not sheet_url.strip():
-        st.error("❌ Vui lòng nhập link Google Sheet!")
-        st.stop()
+    # Tự động thêm https:// nếu người dùng quên nhập
+    if source == "🗺️ Sitemap XML":
+        sitemap_url = sitemap_url.strip()
+        if sitemap_url and not sitemap_url.startswith(("http://", "https://")):
+            sitemap_url = "https://" + sitemap_url
+            
+        if not sitemap_url:
+            st.error("❌ Vui lòng nhập URL Sitemap!")
+            st.stop()
+            
+    if source == "📊 Google Sheet":
+        sheet_url = sheet_url.strip()
+        if sheet_url and not sheet_url.startswith(("http://", "https://")):
+            sheet_url = "https://" + sheet_url
+            
+        if not sheet_url:
+            st.error("❌ Vui lòng nhập link Google Sheet!")
+            st.stop()
 
     with st.spinner("📥 Đang lấy danh sách URL..."):
         if source == "🗺️ Sitemap XML":
