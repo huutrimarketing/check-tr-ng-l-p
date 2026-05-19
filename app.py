@@ -321,8 +321,8 @@ def show_results(results, valid_urls):
             use_container_width=True,
             height=min(500, 60 + len(df) * 38),
             column_config={
-                "Bài viết A": st.column_config.LinkColumn("Bài viết A", width="medium"),
-                "Bài viết B": st.column_config.LinkColumn("Bài viết B", width="medium"),
+                "Bài viết A": st.column_config.TextColumn("Bài viết A", width="large"),
+                "Bài viết B": st.column_config.TextColumn("Bài viết B", width="large"),
                 "Điểm Tổng (%)": st.column_config.ProgressColumn(
                     "Điểm Tổng", min_value=0, max_value=100, format="%.1f%%"
                 ),
