@@ -1,0 +1,10 @@
+# Wiki Duplicate Checker
+*.csv
+*.mjs
+*.js
+*.md
+*.txt
+!requirements.txt
+*.log
+__pycache__/
+.env
