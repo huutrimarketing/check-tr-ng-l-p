@@ -77,7 +77,10 @@ def get_urls_from_sitemap(sitemap_url):
     try:
         resp = requests.get(sitemap_url, timeout=15)
         soup = BeautifulSoup(resp.text, "lxml-xml")
-        return [loc.text.strip() for loc in soup.find_all("loc")]
+        urls = [loc.text.strip() for loc in soup.find_all("loc")]
+        # Lọc bỏ các link là file media/ảnh
+        invalid_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf', '.mp4', '.doc', '.docx')
+        return [u for u in urls if not u.lower().endswith(invalid_exts)]
     except Exception as e:
         st.error(f"❌ Lỗi đọc sitemap: {e}")
         return []
@@ -94,7 +97,12 @@ def get_urls_from_sheet(sheet_url, col_index):
         csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         df = pd.read_csv(csv_url, header=0)
         urls = df.iloc[:, col_index].dropna().astype(str).tolist()
-        return [u.strip() for u in urls if u.strip().startswith("http")]
+        
+        # Lọc bỏ các link là file media/ảnh
+        invalid_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf', '.mp4', '.doc', '.docx')
+        valid_urls = [u.strip() for u in urls if u.strip().startswith("http")]
+        return [u for u in valid_urls if not u.lower().endswith(invalid_exts)]
+        
     except Exception as e:
         st.error(f"❌ Lỗi đọc Google Sheet: {e}")
         st.warning("⚠️ Đảm bảo Google Sheet chia sẻ 'Anyone with the link - Viewer'")
