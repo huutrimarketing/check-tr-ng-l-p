@@ -247,7 +247,7 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
         combined = round(tfidf_score * 0.3 + sim_full * 0.7, 4)
         
         # Chỉ xử lý nếu có bất kỳ điểm nào vượt ngưỡng
-        if combined >= threshold or sim_h1 >= 0.85 or sim_toc >= 0.85:
+        if combined >= threshold or sim_h1 >= 0.90 or sim_toc >= 0.85:
             # 1. Chẩn đoán SEO
             word_count_i = toc_data[i]["word_count"]
             word_count_j = toc_data[j]["word_count"]
@@ -259,7 +259,7 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
             elif combined >= threshold and is_local:
                 diagnosis = "🏙️ Local / Product Variant Duplicate (Trùng lặp biến thể sản phẩm)"
                 action = "Giữ nguyên (nếu là chiến lược) hoặc Redirect"
-            elif sim_h1 >= 0.85 and combined < threshold:
+            elif sim_h1 >= 0.90 and combined < threshold:
                 diagnosis = "⚔️ Keyword Cannibalization (Ăn thịt từ khóa) / Trùng lặp Tiêu đề"
                 action = "Đổi Tiêu đề H1 / Gộp bài"
             elif sim_toc >= 0.85 and combined < threshold:
