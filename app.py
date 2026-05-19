@@ -253,13 +253,7 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
             word_count_j = toc_data[j]["word_count"]
             is_local = is_local_duplicate(valid_urls[i], valid_urls[j])
             
-            diagnosis = ""
-            action = ""
-            
-            if word_count_i < 700 or word_count_j < 700:
-                diagnosis = "🗑️ Thin Content Duplicate (Trùng lặp do nội dung mỏng)"
-                action = "Bổ sung nội dung (>700 từ)"
-            elif combined >= 0.98:
+            if combined >= 0.98:
                 diagnosis = "📑 Exact Match Duplicate (Copy y xì đúc - Điểm 98-100%)"
                 action = "Xóa bài cũ + Redirect 301"
             elif combined >= threshold and is_local:
@@ -271,6 +265,10 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
             elif sim_toc >= 0.85 and combined < threshold:
                 diagnosis = "🏗️ Trùng lặp Cấu trúc (Structure Duplicate)"
                 action = "Viết lại Dàn ý (H2/H3)"
+            elif word_count_i < 700 or word_count_j < 700:
+                # Nếu không rơi vào các lỗi cụ thể ở trên mà tổng thể lại bị trùng (>= threshold) và bài ngắn
+                diagnosis = "🗑️ Thin Content Duplicate (Trùng lặp do nội dung mỏng)"
+                action = "Bổ sung nội dung (>700 từ)"
             elif combined >= threshold:
                 diagnosis = "📄 Content Duplicate"
                 action = "Gộp bài + Redirect 301"
