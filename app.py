@@ -330,9 +330,10 @@ st.write("")
 col1, col2, col3, _ = st.columns([1.5, 1.5, 1.5, 3])
 
 with col1:
+    is_has_data = st.session_state.paused or (st.session_state.results is not None)
     start_btn = st.button(
-        "🚀 Bắt đầu phân tích",
-        disabled=st.session_state.running or st.session_state.paused,
+        "🔄 Bắt đầu quét mới" if is_has_data else "🚀 Bắt đầu phân tích",
+        disabled=st.session_state.running,
         type="primary",
         use_container_width=True
     )
@@ -402,6 +403,7 @@ if start_btn:
     st.session_state.current_index  = 0
     st.session_state.results        = None
     st.session_state.running        = True
+    st.session_state.paused         = False  # Đảm bảo tắt chế độ tạm dừng cũ
     st.session_state.stop_requested = False
     st.session_state.delay          = delay
     st.session_state.threshold      = threshold / 100
