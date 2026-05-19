@@ -131,9 +131,9 @@ def extract_toc(url):
         resp = requests.get(url, timeout=15, headers=headers)
         soup = BeautifulSoup(resp.text, "html.parser")
         h1 = soup.find("h1")
-        h1_text = (h1.get_text(strip=True) + " ") * 3 if h1 else ""
+        h1_text = h1.get_text(strip=True) if h1 else ""
         headings = soup.find_all(["h2", "h3"])
-        toc_text = (" ".join([h.get_text(strip=True) for h in headings]) + " ") * 2
+        toc_text = " ".join([h.get_text(strip=True) for h in headings])
         content_area = (
             soup.find("div", class_="entry-content") or
             soup.find("div", class_="post-content") or
@@ -144,8 +144,8 @@ def extract_toc(url):
             for tag in content_area.find_all(["h1", "h2", "h3", "h4"]):
                 tag.decompose()
             words = content_area.get_text(separator=" ", strip=True).split()
-            intro_text = " ".join(words[:200])
-        combined = h1_text + toc_text + intro_text
+            intro_text = " ".join(words[:150])
+        combined = f"{h1_text}. {toc_text}. {intro_text}"
         return re.sub(r"[^\w\s]", " ", combined).lower().strip()
     except:
         return ""
@@ -326,7 +326,7 @@ with st.sidebar:
 
     # --- Cấu hình phân tích ---
     st.subheader("🔧 Cấu hình")
-    threshold = st.slider("Ngưỡng cảnh báo (%)", 50, 95, 75, 5)
+    threshold = st.slider("Ngưỡng cảnh báo (%)", 50, 95, 85, 5)
     max_urls  = st.number_input("Giới hạn URL", min_value=10, max_value=5000, value=300, step=50)
     delay     = st.slider("Delay giữa request (s)", 0.5, 3.0, 1.0, 0.5)
 
