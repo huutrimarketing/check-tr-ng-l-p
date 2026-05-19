@@ -73,16 +73,33 @@ st.markdown("""
 # ============================================================
 # HÀM XỬ LÝ
 # ============================================================
-def get_urls_from_sitemap(sitemap_url):
+def get_urls_from_sitemap(sitemap_url, depth=0):
+    if depth > 3: # Chống lặp vô hạn
+        return []
     try:
         resp = requests.get(sitemap_url, timeout=15)
         soup = BeautifulSoup(resp.text, "lxml-xml")
+        
+        # 1. Nếu đây là Sitemap Index (chứa các sitemap con)
+        sitemaps = soup.find_all("sitemap")
+        if sitemaps:
+            all_urls = []
+            for sitemap in sitemaps:
+                loc = sitemap.find("loc")
+                if loc and loc.text:
+                    # Gọi đệ quy để quét sitemap con
+                    sub_urls = get_urls_from_sitemap(loc.text.strip(), depth + 1)
+                    all_urls.extend(sub_urls)
+            return all_urls # Dữ liệu đệ quy đã được lọc ở nhánh dưới
+            
+        # 2. Nếu là Sitemap thường (chứa link bài viết)
         urls = [loc.text.strip() for loc in soup.find_all("loc")]
-        # Lọc bỏ các link là file media/ảnh
-        invalid_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf', '.mp4', '.doc', '.docx')
+        invalid_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.pdf', '.mp4', '.doc', '.docx', '.xml')
         return [u for u in urls if not u.lower().endswith(invalid_exts)]
+        
     except Exception as e:
-        st.error(f"❌ Lỗi đọc sitemap: {e}")
+        if depth == 0:
+            st.error(f"❌ Lỗi đọc sitemap: {e}")
         return []
 
 def get_urls_from_sheet(sheet_url, col_index):
