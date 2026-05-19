@@ -257,19 +257,19 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
             action = ""
             
             if word_count_i < 700 or word_count_j < 700:
-                diagnosis = "🗑️ Thin Content"
+                diagnosis = "🗑️ Thin Content Duplicate (Trùng lặp do nội dung mỏng)"
                 action = "Bổ sung nội dung (>700 từ)"
-            elif combined >= 0.95:
-                diagnosis = "📑 Exact Copy"
+            elif combined >= 0.98:
+                diagnosis = "📑 Exact Match Duplicate (Copy y xì đúc - Điểm 98-100%)"
                 action = "Xóa bài cũ + Redirect 301"
             elif combined >= threshold and is_local:
-                diagnosis = "🏙️ Local Template"
+                diagnosis = "🏙️ Local / Product Variant Duplicate (Trùng lặp biến thể sản phẩm)"
                 action = "Giữ nguyên (nếu là chiến lược) hoặc Redirect"
             elif sim_h1 >= 0.85 and combined < threshold:
-                diagnosis = "⚔️ Cannibalization"
+                diagnosis = "⚔️ Keyword Cannibalization (Ăn thịt từ khóa) / Trùng lặp Tiêu đề"
                 action = "Đổi Tiêu đề H1 / Gộp bài"
             elif sim_toc >= 0.85 and combined < threshold:
-                diagnosis = "🏗️ Structure Duplicate"
+                diagnosis = "🏗️ Trùng lặp Cấu trúc (Structure Duplicate)"
                 action = "Viết lại Dàn ý (H2/H3)"
             elif combined >= threshold:
                 diagnosis = "📄 Content Duplicate"
