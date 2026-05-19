@@ -129,6 +129,11 @@ def extract_toc(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, timeout=15, headers=headers)
+        
+        # Bỏ qua nếu link bị 404, 403, 500... (chỉ lấy link hoạt động bình thường mã 200)
+        if resp.status_code != 200:
+            return ""
+            
         soup = BeautifulSoup(resp.text, "html.parser")
         h1 = soup.find("h1")
         h1_text = h1.get_text(strip=True) if h1 else ""
