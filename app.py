@@ -290,10 +290,9 @@ def show_results(results, valid_urls):
         )
         buf = io.BytesIO()
         df.to_excel(buf, index=False)
-        buf.seek(0)
         st.download_button(
             "⬇️ Tải báo cáo Excel",
-            data=buf,
+            data=buf.getvalue(),
             file_name="duplicate_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
