@@ -294,6 +294,63 @@ def run_similarity_analysis(toc_data, valid_urls, threshold):
     return results
 
 # ============================================================
+# CLUSTER: GOM NHÓM TRÙNG LẶP (UNION-FIND)
+# ============================================================
+def cluster_results(pair_results, valid_urls):
+    """Gom các cặp trùng lặp thành các nhóm liên thông."""
+    url_to_idx = {url: i for i, url in enumerate(valid_urls)}
+    parent = list(range(len(valid_urls)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        parent[find(x)] = find(y)
+
+    # Lưu thông tin cạnh (pair) tốt nhất cho mỗi cặp
+    edge_info = {}
+    for r in pair_results:
+        a = r["Bài viết A"]
+        b = r["Bài viết B"]
+        if a in url_to_idx and b in url_to_idx:
+            union(url_to_idx[a], url_to_idx[b])
+            edge_info[(a, b)] = r
+
+    # Gom theo root
+    from collections import defaultdict
+    groups = defaultdict(set)
+    for url in [r["Bài viết A"] for r in pair_results] + [r["Bài viết B"] for r in pair_results]:
+        if url in url_to_idx:
+            root = find(url_to_idx[url])
+            groups[root].add(url)
+
+    # Tạo danh sách cluster
+    clusters = []
+    for root, members in groups.items():
+        members = list(members)
+        # Lấy thông tin chẩn đoán quan trọng nhất trong nhóm
+        group_pairs = [r for r in pair_results if r["Bài viết A"] in members and r["Bài viết B"] in members]
+        if not group_pairs:
+            continue
+        # Chọn cặp có điểm cao nhất để lấy chẩn đoán đại diện
+        best_pair = max(group_pairs, key=lambda r: r["Điểm Tổng (%)"])
+
+        clusters.append({
+            "# Nhóm":        len(clusters) + 1,
+            "Số bài":        len(members),
+            "Chẩn đoán SEO": best_pair["Chẩn đoán SEO"],
+            "Điểm cao nhất": best_pair["Điểm Tổng (%)"],
+            "Cảnh báo":      best_pair["Cảnh báo"],
+            "Đề xuất":       best_pair["Đề xuất"],
+            "Danh sách URL": "\n".join(members)
+        })
+
+    return sorted(clusters, key=lambda c: c["Điểm cao nhất"], reverse=True)
+
+# ============================================================
 # HIỂN THỊ KẾT QUẢ
 # ============================================================
 def show_results(results, valid_urls):
@@ -304,7 +361,6 @@ def show_results(results, valid_urls):
     high_risk  = sum(1 for r in results if "🔴" in r.get("Cảnh báo", ""))
     local_dup  = sum(1 for r in results if "🏙️" in r.get("Chẩn đoán SEO", ""))
     cannibal   = sum(1 for r in results if "⚔️" in r.get("Chẩn đoán SEO", ""))
-    dup_rate   = round(total / max(len(valid_urls), 1) * 100, 1)
 
     # Metric cards — native Streamlit
     c1, c2, c3, c4 = st.columns(4)
@@ -315,24 +371,59 @@ def show_results(results, valid_urls):
 
     st.write("")
     if results:
-        df = pd.DataFrame(results).sort_values("Điểm Tổng (%)", ascending=False)
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=min(500, 60 + len(df) * 38),
-            column_config={
-                "Bài viết A": st.column_config.TextColumn("Bài viết A", width="large"),
-                "Bài viết B": st.column_config.TextColumn("Bài viết B", width="large"),
-                "Điểm Tổng (%)": st.column_config.ProgressColumn(
-                    "Điểm Tổng", min_value=0, max_value=100, format="%.1f%%"
-                ),
-            },
-            hide_index=True
-        )
+        # --- Tab Pair vs Cluster ---
+        tab1, tab2 = st.tabs(["🔗 Xem theo Cặp (Chi tiết)", "📦 Xem theo Nhóm (Tổng hợp)"])
+
+        with tab1:
+            st.caption("Mỗi hàng là 1 cặp bài viết trùng nhau. Bài A có thể xuất hiện nhiều lần nếu trùng nhiều bài.")
+            df_pair = pd.DataFrame(results).sort_values("Điểm Tổng (%)", ascending=False)
+            st.dataframe(
+                df_pair,
+                use_container_width=True,
+                height=min(500, 60 + len(df_pair) * 38),
+                column_config={
+                    "Bài viết A": st.column_config.TextColumn("Bài viết A", width="large"),
+                    "Bài viết B": st.column_config.TextColumn("Bài viết B", width="large"),
+                    "Điểm Tổng (%)": st.column_config.ProgressColumn(
+                        "Điểm Tổng", min_value=0, max_value=100, format="%.1f%%"
+                    ),
+                },
+                hide_index=True
+            )
+
+        with tab2:
+            clusters = cluster_results(results, valid_urls)
+            st.caption(f"Gom {total} cặp trùng lặp thành **{len(clusters)} nhóm** độc lập. Mỗi bài chỉ xuất hiện 1 lần.")
+            
+            for c in clusters:
+                badge = c["Cảnh báo"]
+                diagnosis = c["Chẩn đoán SEO"]
+                urls = c["Danh sách URL"].split("\n")
+                
+                with st.expander(f"**{badge} Nhóm {c['# Nhóm']}** — {diagnosis} | {len(urls)} bài | Điểm cao nhất: {c['Điểm cao nhất']}%"):
+                    st.markdown(f"**💡 Đề xuất:** {c['Đề xuất']}")
+                    st.markdown("**📋 Danh sách URL trong nhóm:**")
+                    for u in urls:
+                        st.code(u, language=None)
+
+            # Export Excel dạng cluster
+            df_cluster = pd.DataFrame(clusters)
+            buf2 = io.BytesIO()
+            df_cluster.to_excel(buf2, index=False)
+            st.download_button(
+                "⬇️ Tải báo cáo Nhóm (Excel)",
+                data=buf2.getvalue(),
+                file_name="seo_cluster_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+        # Export Excel đầy đủ (pair)
+        df_full = pd.DataFrame(results).sort_values("Điểm Tổng (%)", ascending=False)
         buf = io.BytesIO()
-        df.to_excel(buf, index=False)
+        df_full.to_excel(buf, index=False)
         st.download_button(
-            "⬇️ Tải báo cáo Excel chi tiết",
+            "⬇️ Tải báo cáo Chi tiết (Excel)",
             data=buf.getvalue(),
             file_name="seo_duplicate_diagnosis.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -340,6 +431,7 @@ def show_results(results, valid_urls):
         )
     else:
         st.success("🎉 Không tìm thấy vấn đề trùng lặp SEO nào!")
+
 
 # ============================================================
 # SIDEBAR
